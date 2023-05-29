@@ -1,73 +1,71 @@
 #!/usr/bin/python3
-""" Configures RESTful api for the states route """
-from flask import jsonify, request, abort
-from api.v1.views import app_views
+"""Create a new view for State objects that handles
+all default RESTFul API actions"""
 from models import storage
 from models.state import State
+from api.v1.views import app_views
+from flask import jsonify, abort, request
+from flasgger.utils import swag_from
 
 
-@app_views.route("/states", methods=["GET", "POST"], strict_slashes=False)
-def states():
-    """ configures the state route """
-
-    if request.method == "GET":
-        states = storage.all(State)
-        states_dict = [state.to_dict() for state in states.values()]
-
-        return jsonify(states_dict)
-    else:
-        try:
-            json_dict = request.get_json()
-        except Exception:
-            abort(400, "Not a JSON")
-
-        if not json_dict:
-            abort(400, "Not a JSON")
-
-        try:
-            name = json_dict["name"]
-        except KeyError:
-            abort(400, "Missing name")
-
-        new_state = State(**json_dict)
-
-        storage.new(new_state)
-        storage.save()
-
-        return jsonify(new_state.to_dict()), 201
+@app_views.route('/states', methods=['GET'], strict_slashes=False)
+@swag_from('documentation/state/get_state.yml', methods=['GET'])
+def get_states():
+    dict_ = []
+    for val in storage.all(State).values():
+        dict_.append(val.to_dict())
+    return jsonify(dict_)
 
 
-@app_views.route("/states/<state_id>", methods=["GET", "DELETE", "PUT"],
-                 strict_slashes=False)
-def states_id(state_id):
-    """ configures the states/<state_id> route """
-
-    state = storage.get("State", state_id)
-
-    if not state:
+@app_views.route('/states/<path:state_id>')
+@swag_from('documentation/state/get_state.yml', methods=['GET'])
+def get_state(state_id):
+    state = storage.get(State, state_id)
+    if state is None:
         abort(404)
+    return jsonify(state.to_dict())
 
-    if request.method == "GET":
-        return jsonify(state.to_dict())
-    elif request.method == "DELETE":
-        storage.delete(state)
-        storage.save()
 
-        return jsonify({}), 200
-    else:
-        try:
-            json_dict = request.get_json()
-        except Exception:
-            abort(400, "Not a JSON")
+@app_views.route('/states/<path:state_id>', methods=['DELETE'],
+                 strict_slashes=False)
+@swag_from('documentation/state/delete_state.yml', methods=['DELETE'])
+def delete_state(state_id):
+    if state_id is None:
+        abort(404)
+    state = storage.get(State, state_id)
+    if state is None:
+        abort(404)
+    state.delete()
+    storage.save()
+    return jsonify({})
 
-        if not json_dict:
-            abort(400, "Not a JSON")
 
-        keys_to_ignore = ["id", "created_at", "updated_at"]
-        state_dict = state.to_dict()
-        for key, val in json_dict.items():
-            if key not in keys_to_ignore and key in state_dict:
-                setattr(state, key, val)
+@app_views.route('/states', methods=['POST'],
+                 strict_slashes=False)
+@swag_from('documentation/state/post_state.yml', methods=['POST'])
+def post_state():
+    res = request.get_json()
+    if type(res) != dict:
+        return abort(400, {'message': 'Not a JSON'})
+    if 'name' not in res:
+        return abort(400, {'message': 'Missing name'})
+    new_state = State(**res)
+    new_state.save()
+    return jsonify(new_state.to_dict()), 201
 
-        storage.save()
-        return jsonify(state.to_dict()), 200
+
+@app_views.route('/states/<path:state_id>', methods=['PUT'],
+                 strict_slashes=False)
+@swag_from('documentation/state/put_state.yml', methods=['PUT'])
+def put_state(state_id):
+    state = storage.get(State, state_id)
+    if state is None:
+        abort(404)
+    res = request.get_json()
+    if type(res) != dict:
+        return abort(400, {'message': 'Not a JSON'})
+    for key, value in res.items():
+        if key not in ["id", "state_id", "created_at", "updated_at"]:
+            setattr(state, key, value)
+    storage.save()
+    return jsonify(state.to_dict()), 200
